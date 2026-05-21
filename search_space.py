@@ -101,12 +101,13 @@ CLASSIFIER_SPACE = {
         "p": [1, 2],
     },
 
+    # restricted for testing runtime
     "sklearn.svm.SVC": {
-        "C": [1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0],
-        "kernel": ["rbf", "poly", "sigmoid"],
+        "C": [1e-3, 1e-2, 1e-1, 1.0, 10.0],
+        "kernel": ["rbf"],
         "degree": [2, 3],
         "probability": [True],
-        "cache_size": [200],
+        "cache_size": [500],
     },
 
     "sklearn.linear_model.LogisticRegression": {

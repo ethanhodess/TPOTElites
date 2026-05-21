@@ -47,6 +47,35 @@ def _sample_params(param_grid: Dict[str, Any], rng: random.Random) -> Dict[str, 
             for k, v in param_grid.items()}
 
 
+def _is_numerical(values: list) -> bool:
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool)
+               for v in values)
+
+
+def _adjust_param(
+    current_value: Any,
+    grid: Dict[str, Any],
+    key: str,
+    rng: random.Random,
+) -> Any:
+
+    values = grid[key]
+    if not isinstance(values, list) or not _is_numerical(values):
+        # Categorical -- fall back to uniform resample
+        return rng.choice(values)
+ 
+    try:
+        idx = values.index(current_value)
+    except ValueError:
+        # Current value not in grid -- fall back to uniform resample
+        return rng.choice(values)
+ 
+    # +-1 with boundary clamping
+    direction = rng.choice([-1, 1])
+    new_idx = max(0, min(len(values) - 1, idx + direction))
+    return values[new_idx]
+
+
 def _passthrough_step():
     """An sklearn transformer that does nothing (identity)."""
     return FunctionTransformer()
@@ -162,6 +191,9 @@ class PipelineIndividual:
           D) Resample a single hyperparameter of the selector
           E) Resample a single hyperparameter of the transformer
           F) Resample a single hyperparameter of the classifier
+          G) Adjust a numerical hyperparameter of the selector by +-1 step
+          H) Adjust a numerical hyperparameter of the transformer by +-1 step
+          I) Adjust a numerical hyperparameter of the classifier by +-1 step
         """
         if rng is None:
             rng = random.Random()
@@ -174,7 +206,8 @@ class PipelineIndividual:
         child.n_features_out = None
 
         strategy = rng.choice(["sel_step", "trf_step", "clf_step",
-                               "sel_param", "trf_param", "clf_param"])
+                               "sel_param", "trf_param", "clf_param",
+                               "sel_adjust", "trf_adjust", "clf_adjust"])
 
         if strategy == "sel_step":
             child.selector = rng.choice(list(SELECTOR_SPACE.keys()))
@@ -208,6 +241,27 @@ class PipelineIndividual:
             if grid:
                 key = rng.choice(list(grid.keys()))
                 child.classifier_params[key] = rng.choice(grid[key])
+
+        elif strategy == "sel_adjust":
+            grid = SELECTOR_SPACE[child.selector]
+            if grid:
+                key = rng.choice(list(grid.keys()))
+                child.selector_params[key] = _adjust_param(
+                    child.selector_params[key], grid, key, rng)
+ 
+        elif strategy == "trf_adjust":
+            grid = TRANSFORMER_SPACE[child.transformer]
+            if grid:
+                key = rng.choice(list(grid.keys()))
+                child.transformer_params[key] = _adjust_param(
+                    child.transformer_params[key], grid, key, rng)
+ 
+        elif strategy == "clf_adjust":
+            grid = CLASSIFIER_SPACE[child.classifier]
+            if grid:
+                key = rng.choice(list(grid.keys()))
+                child.classifier_params[key] = _adjust_param(
+                    child.classifier_params[key], grid, key, rng)
 
         return child
 

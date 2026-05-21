@@ -8,16 +8,44 @@ from __future__ import annotations
 
 import random
 import time
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import ray
 
 from ensemble_selection import greedy_forward_select, ensemble_predict_proba
 from evaluation import EvalCache, evaluate
 from search_space import COMPRESSION_BINS, FAMILIES
 from pipeline import PipelineIndividual
 
+
+
+# evaluate one pipeline
+@ray.remote(num_cpus=1)
+def evaluate_remote(
+    individual: PipelineIndividual,
+    X,
+    y,
+    cv_folds: int,
+    scoring: str,
+    random_state: int,
+):
+
+    local_cache = {}
+
+    evaluate(
+        individual,
+        X,
+        y,
+        cv=cv_folds,
+        scoring=scoring,
+        cache=local_cache,
+        random_state=random_state,
+    )
+
+    return individual
 
 @dataclass
 class MAPElitesConfig:
@@ -32,6 +60,8 @@ class MAPElitesConfig:
     cv_folds: int = 5
     scoring: str = "accuracy"       # "accuracy" | "roc_auc"
     random_state: int = 42
+
+    n_jobs: int = 1
 
     ensemble_size: int = 50         # Caruana forward selection slots
 
@@ -124,6 +154,12 @@ def run_mapelites(
 
     if config is None:
         config = MAPElitesConfig()
+    
+    if not ray.is_initialized():
+        ray.init(
+            num_cpus=os.cpu_count(),
+            ignore_reinit_error=True,
+        )
 
     rng = random.Random(config.random_state)
     np.random.seed(config.random_state)
@@ -134,6 +170,9 @@ def run_mapelites(
     logs = []
     t0 = time.time()
 
+    X_ref = ray.put(X)
+    y_ref = ray.put(y)
+
     # Random initial population
     if config.verbose:
         print(f"MAP-Elites: initialising with {config.init_population} "
@@ -143,15 +182,26 @@ def run_mapelites(
         PipelineIndividual.random(rng) for _ in range(config.init_population)
     ]
 
-    for i, ind in enumerate(init_individuals):
-        evaluate(ind, X, y,
-                 cv=config.cv_folds,
-                 scoring=config.scoring,
-                 cache=cache,
-                 random_state=config.random_state)
+    futures = [
+        evaluate_remote.remote(
+            ind,
+            X_ref,
+            y_ref,
+            config.cv_folds,
+            config.scoring,
+            config.random_state,
+        )
+        for ind in init_individuals
+    ]
+
+    evaluated_inds = ray.get(futures)
+
+    for ind in evaluated_inds:
         n_evals += 1
         if ind.cv_score > -np.inf:
             _try_place(archive, ind)
+
+   
 
     if config.verbose:
         print(f"  Init done. Filled {len(archive)}/{_grid_shape()[0]*_grid_shape()[1]} "
@@ -167,13 +217,21 @@ def run_mapelites(
         else:
             children = _produce_children(archive, config, rng)
 
+        futures = [
+            evaluate_remote.remote(
+                child,
+                X_ref,
+                y_ref,
+                config.cv_folds,
+                config.scoring,
+                config.random_state,
+            )
+            for child in children
+        ]
+        evaluated_children = ray.get(futures)
+
         n_placed = 0
-        for child in children:
-            evaluate(child, X, y,
-                     cv=config.cv_folds,
-                     scoring=config.scoring,
-                     cache=cache,
-                     random_state=config.random_state)
+        for child in evaluated_children:
             n_evals += 1
             if child.cv_score > -np.inf:
                 placed = _try_place(archive, child)
