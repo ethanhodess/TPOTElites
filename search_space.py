@@ -44,11 +44,11 @@ TRANSFORMER_SPACE = {
         "norm": ["l1", "l2", "max"],
     },
 
-    "sklearn.preprocessing.PolynomialFeatures": {
-        "degree": [2],
-        "include_bias": [False],
-        "interaction_only": [False, True],
-    },
+    # "sklearn.preprocessing.PolynomialFeatures": {
+    #     "degree": [2],
+    #     "include_bias": [False],
+    #     "interaction_only": [False, True],
+    # },
 }
 
 # Classifiers
@@ -101,10 +101,9 @@ CLASSIFIER_SPACE = {
         "p": [1, 2],
     },
 
-    # restricted for testing runtime
     "sklearn.svm.SVC": {
-        "C": [1e-3, 1e-2, 1e-1, 1.0, 10.0],
-        "kernel": ["rbf"],
+        "C": [1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0],
+        "kernel": ["rbf", "poly", "sigmoid"],
         "degree": [2, 3],
         "probability": [True],
         "cache_size": [500],
@@ -129,31 +128,45 @@ CLASSIFIER_SPACE = {
 
 # Classifier → family mapping
 CLASSIFIER_FAMILY = {
-    "sklearn.naive_bayes.GaussianNB":                  "probabilistic",
-    "sklearn.naive_bayes.BernoulliNB":                 "probabilistic",
-    "sklearn.tree.DecisionTreeClassifier":             "tree",
-    "sklearn.ensemble.ExtraTreesClassifier":           "tree_ensemble",
-    "sklearn.ensemble.RandomForestClassifier":         "tree_ensemble",
-    "sklearn.ensemble.GradientBoostingClassifier":     "tree_ensemble",
-    "sklearn.neighbors.KNeighborsClassifier":          "neighbor",
-    "sklearn.svm.SVC":                                 "kernel",
-    "sklearn.linear_model.LogisticRegression":         "linear",
-    "sklearn.linear_model.SGDClassifier":              "linear",
+    "sklearn.naive_bayes.GaussianNB":                  "GaussianNB",
+    "sklearn.naive_bayes.BernoulliNB":                 "BernoulliNB",
+    "sklearn.tree.DecisionTreeClassifier":             "DecisionTree",
+    "sklearn.ensemble.ExtraTreesClassifier":           "ExtraTrees",
+    "sklearn.ensemble.RandomForestClassifier":         "RandomForest",
+    "sklearn.ensemble.GradientBoostingClassifier":     "GradientBoosting",
+    "sklearn.neighbors.KNeighborsClassifier":          "KNeighbors",
+    "sklearn.svm.SVC":                                 "SVC",
+    "sklearn.linear_model.LogisticRegression":         "LogisticRegression",
+    "sklearn.linear_model.SGDClassifier":              "SGDClassifier",
 }
 
 # classifier families
-FAMILIES = ["linear", "probabilistic", "tree", "tree_ensemble", "kernel", "neighbor"]
+FAMILIES = ["GaussianNB", "BernoulliNB", "DecisionTree", "ExtraTrees", "RandomForest", "GradientBoosting",
+            "KNeighbors", "SVC", "LogisticRegression", "SGDClassifier"]
 
 
-COMPRESSION_BINS = ["none", "low", "medium", "high"]
+COMPRESSION_BINS = ["none", "0.9", "0.8", "0.7", "0.6", "0.5", "0.4",
+                    "0.3", "0.2", "high"]
 
 # Compression ratio = n_features_out / n_features_in
 def compression_bin(ratio: float) -> str:
     if ratio >= 1.0:
         return "none"
+    elif ratio > 0.9:
+        return "0.9"
+    elif ratio > 0.8:
+        return "0.8"
     elif ratio > 0.7:
-        return "low"
-    elif ratio >= 0.4:
-        return "medium"
+        return "0.7"
+    elif ratio > 0.6:
+        return "0.6"
+    elif ratio > 0.5:
+        return "0.5"
+    elif ratio > 0.4:
+        return "0.4"
+    elif ratio > 0.3:
+        return "0.3"
+    elif ratio > 0.2:
+        return "0.2"
     else:
         return "high"

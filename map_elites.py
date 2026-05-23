@@ -175,7 +175,7 @@ def run_mapelites(
 
     # Random initial population
     if config.verbose:
-        print(f"MAP-Elites: initialising with {config.init_population} "
+        print(f"TPOT-Elites: initializing with {config.init_population} "
               f"random individuals …")
 
     init_individuals = [

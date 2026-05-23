@@ -49,12 +49,15 @@ def main():
 
         results = []
 
-        est = TPOTElites(generations=190, init_size=100, population_size=10, ensemble_size=30, random_state=run_num, verbosity=2)
+        est = TPOTElites(generations=98, init_size=200, population_size=100, ensemble_size=50, random_state=run_num, verbosity=2)
         est.fit(X_train, y_train)
         ensemble_score = accuracy_score(y_test, est.predict(X_test))
 
         est.print_archive()
         est.print_ensemble()
+
+        for i, score in enumerate(est.ensemble_trajectory_):
+            print(f"step {i+1:>3}: {score:.4f}")
             
         best = est.search_result_.best_individual()
         pipe = best.build_sklearn_pipeline()
@@ -62,6 +65,7 @@ def main():
         individual_score = accuracy_score(y_test, pipe.predict(X_test))
 
         results.append({
+            "task_id": task_id,
             "seed": run_num,
             "ensemble_score": ensemble_score,
             "individual_score": individual_score
