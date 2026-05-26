@@ -52,26 +52,25 @@ def _is_numerical(values: list) -> bool:
                for v in values)
 
 
-def _adjust_param(
+def _step_param(
     current_value: Any,
-    grid: Dict[str, Any],
-    key: str,
+    values: list,
+    direction: int,
     rng: random.Random,
 ) -> Any:
-
-    values = grid[key]
-    if not isinstance(values, list) or not _is_numerical(values):
-        # Categorical -- fall back to uniform resample
-        return rng.choice(values)
- 
+    """
+    Step a parameter by `direction` (+1 or -1) positions in its value list.
+    For numerical params: index step.
+    For categorical params: uniform resample 
+    """
+    if not _is_numerical(values):
+        # Categorical: resample uniformly, excluding current value if possible
+        choices = [v for v in values if v != current_value] or values
+        return rng.choice(choices)
     try:
         idx = values.index(current_value)
     except ValueError:
-        # Current value not in grid -- fall back to uniform resample
         return rng.choice(values)
- 
-    # +-1 with boundary clamping
-    direction = rng.choice([-1, 1])
     new_idx = max(0, min(len(values) - 1, idx + direction))
     return values[new_idx]
 
@@ -79,6 +78,62 @@ def _adjust_param(
 def _passthrough_step():
     """An sklearn transformer that does nothing (identity)."""
     return FunctionTransformer()
+
+
+def _mutate_step(
+    child: "PipelineIndividual",
+    step: str,
+    space: Dict[str, Any],
+    rng: random.Random,
+    p_mutate: float = 1/3,
+) -> None:
+    """
+    Independently consider one pipeline step for mutation (in-place).
+
+    With probability p_mutate:
+      - Heads (p=0.5): randomly resample entire step
+      - Tails (p=0.5): roll all parameters, each independently:
+                         +1 grid step  (p=1/3)
+                         -1 grid step  (p=1/3)
+                         no change     (p=1/3)
+    """
+    if rng.random() >= p_mutate:
+        return   # this step is not mutated
+
+    if rng.random() < 0.5:
+        # Replace entire step
+        new_name = rng.choice(list(space.keys()))
+        if step == "selector":
+            child.selector = new_name
+            child.selector_params = _sample_params(space[new_name], rng)
+        elif step == "transformer":
+            child.transformer = new_name
+            child.transformer_params = _sample_params(space[new_name], rng)
+        else:
+            child.classifier = new_name
+            child.classifier_params = _sample_params(space[new_name], rng)
+    else:
+        # Sweep all parameters of the current step
+        if step == "selector":
+            current_name = child.selector
+            current_params = child.selector_params
+        elif step == "transformer":
+            current_name = child.transformer
+            current_params = child.transformer_params
+        else:
+            current_name = child.classifier
+            current_params = child.classifier_params
+
+        grid = space[current_name]
+        for key, values in grid.items():
+            if not isinstance(values, list):
+                continue
+            roll = rng.random()
+            if roll < 1/3:
+                current_params[key] = _step_param(current_params[key], values, +1, rng)
+            elif roll < 2/3:
+                current_params[key] = _step_param(current_params[key], values, -1, rng)
+            # else roll >= 2/3: no change
 
 
 # Pipeline individual class
@@ -185,83 +240,20 @@ class PipelineIndividual:
         Return a mutated copy of this individual.
 
         Mutation strategy:
-          A) Replace entire selector with a random one
-          B) Replace entire transformer with a random one
-          C) Replace entire classifier with a random one
-          D) Resample a single hyperparameter of the selector
-          E) Resample a single hyperparameter of the transformer
-          F) Resample a single hyperparameter of the classifier
-          G) Adjust a numerical hyperparameter of the selector by +-1 step
-          H) Adjust a numerical hyperparameter of the transformer by +-1 step
-          I) Adjust a numerical hyperparameter of the classifier by +-1 step
+          
         """
         if rng is None:
             rng = random.Random()
 
         child = copy.deepcopy(self)
-        # Clear evaluation results — child must be re-evaluated
         child.cv_score = None
         child.oof_predictions = None
         child.n_features_in = None
         child.n_features_out = None
 
-        strategy = rng.choice(["sel_step", "trf_step", "clf_step",
-                               "sel_param", "trf_param", "clf_param",
-                               "sel_adjust", "trf_adjust", "clf_adjust"])
-
-        if strategy == "sel_step":
-            child.selector = rng.choice(list(SELECTOR_SPACE.keys()))
-            child.selector_params = _sample_params(
-                SELECTOR_SPACE[child.selector], rng)
-
-        elif strategy == "trf_step":
-            child.transformer = rng.choice(list(TRANSFORMER_SPACE.keys()))
-            child.transformer_params = _sample_params(
-                TRANSFORMER_SPACE[child.transformer], rng)
-
-        elif strategy == "clf_step":
-            child.classifier = rng.choice(list(CLASSIFIER_SPACE.keys()))
-            child.classifier_params = _sample_params(
-                CLASSIFIER_SPACE[child.classifier], rng)
-
-        elif strategy == "sel_param":
-            grid = SELECTOR_SPACE[child.selector]
-            if grid:
-                key = rng.choice(list(grid.keys()))
-                child.selector_params[key] = rng.choice(grid[key])
-
-        elif strategy == "trf_param":
-            grid = TRANSFORMER_SPACE[child.transformer]
-            if grid:
-                key = rng.choice(list(grid.keys()))
-                child.transformer_params[key] = rng.choice(grid[key])
-
-        elif strategy == "clf_param":
-            grid = CLASSIFIER_SPACE[child.classifier]
-            if grid:
-                key = rng.choice(list(grid.keys()))
-                child.classifier_params[key] = rng.choice(grid[key])
-
-        elif strategy == "sel_adjust":
-            grid = SELECTOR_SPACE[child.selector]
-            if grid:
-                key = rng.choice(list(grid.keys()))
-                child.selector_params[key] = _adjust_param(
-                    child.selector_params[key], grid, key, rng)
- 
-        elif strategy == "trf_adjust":
-            grid = TRANSFORMER_SPACE[child.transformer]
-            if grid:
-                key = rng.choice(list(grid.keys()))
-                child.transformer_params[key] = _adjust_param(
-                    child.transformer_params[key], grid, key, rng)
- 
-        elif strategy == "clf_adjust":
-            grid = CLASSIFIER_SPACE[child.classifier]
-            if grid:
-                key = rng.choice(list(grid.keys()))
-                child.classifier_params[key] = _adjust_param(
-                    child.classifier_params[key], grid, key, rng)
+        _mutate_step(child, "selector", SELECTOR_SPACE, rng)
+        _mutate_step(child, "transformer", TRANSFORMER_SPACE, rng)
+        _mutate_step(child, "classifier", CLASSIFIER_SPACE, rng)
 
         return child
 
@@ -288,23 +280,32 @@ class PipelineIndividual:
 
         point = rng.choice(["selector", "transformer", "classifier"])
 
-        if point == "selector":
+        if rng.random() < 1/3:
             child_a.selector, child_b.selector = (
                 child_b.selector, child_a.selector)
             child_a.selector_params, child_b.selector_params = (
                 child_b.selector_params, child_a.selector_params)
 
-        elif point == "transformer":
+        if rng.random() < 1/3:
             child_a.transformer, child_b.transformer = (
                 child_b.transformer, child_a.transformer)
             child_a.transformer_params, child_b.transformer_params = (
                 child_b.transformer_params, child_a.transformer_params)
 
-        else:
+        if rng.random() < 1/3:
             child_a.classifier, child_b.classifier = (
                 child_b.classifier, child_a.classifier)
             child_a.classifier_params, child_b.classifier_params = (
                 child_b.classifier_params, child_a.classifier_params)
+
+
+        _mutate_step(child_a, "selector", SELECTOR_SPACE, rng)
+        _mutate_step(child_a, "transformer", TRANSFORMER_SPACE, rng)
+        _mutate_step(child_a, "classifier", CLASSIFIER_SPACE, rng)
+
+        _mutate_step(child_b, "selector", SELECTOR_SPACE, rng)
+        _mutate_step(child_b, "transformer", TRANSFORMER_SPACE, rng)
+        _mutate_step(child_b, "classifier", CLASSIFIER_SPACE, rng)
 
         return child_a, child_b
 

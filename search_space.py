@@ -101,9 +101,10 @@ CLASSIFIER_SPACE = {
         "p": [1, 2],
     },
 
+    # "poly", "sigmoid" kernels removed for runtime test
     "sklearn.svm.SVC": {
         "C": [1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0],
-        "kernel": ["rbf", "poly", "sigmoid"],
+        "kernel": ["rbf"],
         "degree": [2, 3],
         "probability": [True],
         "cache_size": [500],
@@ -123,50 +124,67 @@ CLASSIFIER_SPACE = {
         "l1_ratio": [0.0, 0.25, 0.5, 0.75, 1.0],
         "max_iter": [1000],
     },
+
+    "sklearn.neural_network.MLPClassifier": {
+        "hidden_layer_sizes": [(50,), (100,), (100, 50), (100, 100), (50, 50, 50)],
+        "activation": ["relu", "tanh"],
+        "alpha": [1e-4, 1e-3, 1e-2],
+        "learning_rate_init": [1e-3, 1e-2],
+        "max_iter": [500],
+        "early_stopping": [True],
+    },
+
+    "sklearn.discriminant_analysis.LinearDiscriminantAnalysis": {
+        "solver": ["lsqr"],
+        "shrinkage": [None, "auto", 0.1, 0.5, 0.9],
+    },
+ 
+    "sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis": {
+        "reg_param": [0.1, 0.3, 0.5, 0.7, 0.9],   
+    },
+
+    "sklearn.ensemble.AdaBoostClassifier": {
+        "n_estimators": [50, 100, 200],
+        "learning_rate": [0.01, 0.1, 0.5, 1.0],
+    },
 }
 
 
 # Classifier → family mapping
 CLASSIFIER_FAMILY = {
-    "sklearn.naive_bayes.GaussianNB":                  "GaussianNB",
-    "sklearn.naive_bayes.BernoulliNB":                 "BernoulliNB",
-    "sklearn.tree.DecisionTreeClassifier":             "DecisionTree",
-    "sklearn.ensemble.ExtraTreesClassifier":           "ExtraTrees",
-    "sklearn.ensemble.RandomForestClassifier":         "RandomForest",
-    "sklearn.ensemble.GradientBoostingClassifier":     "GradientBoosting",
-    "sklearn.neighbors.KNeighborsClassifier":          "KNeighbors",
-    "sklearn.svm.SVC":                                 "SVC",
-    "sklearn.linear_model.LogisticRegression":         "LogisticRegression",
-    "sklearn.linear_model.SGDClassifier":              "SGDClassifier",
+    "sklearn.naive_bayes.GaussianNB":                               "GaussianNB",
+    "sklearn.naive_bayes.BernoulliNB":                              "BernoulliNB",
+    "sklearn.tree.DecisionTreeClassifier":                          "DecisionTree",
+    "sklearn.ensemble.ExtraTreesClassifier":                        "ExtraTrees",
+    "sklearn.ensemble.RandomForestClassifier":                      "RandomForest",
+    "sklearn.ensemble.GradientBoostingClassifier":                  "GB",
+    "sklearn.neighbors.KNeighborsClassifier":                       "KNeighbors",
+    "sklearn.svm.SVC":                                              "SVC",
+    "sklearn.linear_model.LogisticRegression":                      "LR",
+    "sklearn.linear_model.SGDClassifier":                           "SGD",
+    "sklearn.neural_network.MLPClassifier":                         "MLP",
+    "sklearn.discriminant_analysis.LinearDiscriminantAnalysis":     "LDA",
+    "sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis":  "QDA",
+    "sklearn.ensemble.AdaBoostClassifier":                          "AdaBoost"
+
 }
 
 # classifier families
-FAMILIES = ["GaussianNB", "BernoulliNB", "DecisionTree", "ExtraTrees", "RandomForest", "GradientBoosting",
-            "KNeighbors", "SVC", "LogisticRegression", "SGDClassifier"]
+FAMILIES = ["GaussianNB", "BernoulliNB", "DecisionTree", "ExtraTrees", "RandomForest", "GB",
+            "KNeighbors", "SVC", "LR", "SGD", "MLP", "LDA", "QDA", "AdaBoost"]
 
 
-COMPRESSION_BINS = ["none", "0.9", "0.8", "0.7", "0.6", "0.5", "0.4",
-                    "0.3", "0.2", "high"]
+COMPRESSION_BINS = ["none", "low", "medium", "medium_high","high"]
 
 # Compression ratio = n_features_out / n_features_in
 def compression_bin(ratio: float) -> str:
     if ratio >= 1.0:
         return "none"
-    elif ratio > 0.9:
-        return "0.9"
-    elif ratio > 0.8:
-        return "0.8"
-    elif ratio > 0.7:
-        return "0.7"
-    elif ratio > 0.6:
-        return "0.6"
-    elif ratio > 0.5:
-        return "0.5"
-    elif ratio > 0.4:
-        return "0.4"
-    elif ratio > 0.3:
-        return "0.3"
-    elif ratio > 0.2:
-        return "0.2"
+    elif ratio >= 0.8:
+        return "low"
+    elif ratio >= 0.5:
+        return "medium"
+    elif ratio >= 0.3:
+        return "medium_high"
     else:
         return "high"

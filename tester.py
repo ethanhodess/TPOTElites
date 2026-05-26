@@ -49,7 +49,7 @@ def main():
 
         results = []
 
-        est = TPOTElites(generations=98, init_size=200, population_size=100, ensemble_size=50, random_state=run_num, verbosity=2)
+        est = TPOTElites(generations=200, init_size=200, population_size=50, ensemble_size=50, random_state=run_num, verbosity=2)
         est.fit(X_train, y_train)
         ensemble_score = accuracy_score(y_test, est.predict(X_test))
 
