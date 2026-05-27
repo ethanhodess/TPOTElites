@@ -49,7 +49,7 @@ def main():
 
         results = []
 
-        est = TPOTElites(generations=200, init_size=200, population_size=50, ensemble_size=50, random_state=run_num, verbosity=2)
+        est = TPOTElites(generations=60, init_size=2000, population_size=50, ensemble_size=50, random_state=run_num, verbosity=2)
         est.fit(X_train, y_train)
         ensemble_score = accuracy_score(y_test, est.predict(X_test))
 
@@ -67,8 +67,8 @@ def main():
         results.append({
             "task_id": task_id,
             "seed": run_num,
-            "ensemble_score": ensemble_score,
-            "individual_score": individual_score
+            "ensemble": ensemble_score,
+            "individual": individual_score
         })
             
         results_df = pd.DataFrame(results)

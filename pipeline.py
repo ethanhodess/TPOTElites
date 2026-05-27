@@ -85,7 +85,7 @@ def _mutate_step(
     step: str,
     space: Dict[str, Any],
     rng: random.Random,
-    p_mutate: float = 1/3,
+    p_mutate: float = 1/2,
 ) -> None:
     """
     Independently consider one pipeline step for mutation (in-place).
@@ -129,11 +129,15 @@ def _mutate_step(
             if not isinstance(values, list):
                 continue
             roll = rng.random()
-            if roll < 1/3:
+            if roll < 30/100:
                 current_params[key] = _step_param(current_params[key], values, +1, rng)
-            elif roll < 2/3:
+            elif roll < 60/100:
                 current_params[key] = _step_param(current_params[key], values, -1, rng)
-            # else roll >= 2/3: no change
+            elif roll < 70/100:
+                current_params[key] = _step_param(current_params[key], values, +2, rng)
+            elif roll < 80/100:
+                current_params[key] = _step_param(current_params[key], values, -2, rng)
+            # else roll >= 80/100: no change
 
 
 # Pipeline individual class
@@ -280,19 +284,19 @@ class PipelineIndividual:
 
         point = rng.choice(["selector", "transformer", "classifier"])
 
-        if rng.random() < 1/3:
+        if rng.random() < 1/2:
             child_a.selector, child_b.selector = (
                 child_b.selector, child_a.selector)
             child_a.selector_params, child_b.selector_params = (
                 child_b.selector_params, child_a.selector_params)
 
-        if rng.random() < 1/3:
+        if rng.random() < 1/2:
             child_a.transformer, child_b.transformer = (
                 child_b.transformer, child_a.transformer)
             child_a.transformer_params, child_b.transformer_params = (
                 child_b.transformer_params, child_a.transformer_params)
 
-        if rng.random() < 1/3:
+        if rng.random() < 1/2:
             child_a.classifier, child_b.classifier = (
                 child_b.classifier, child_a.classifier)
             child_a.classifier_params, child_b.classifier_params = (
