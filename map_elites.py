@@ -351,3 +351,17 @@ def extract_ensemble(
         members=members,
         oof_predictions=oof_preds,
     )
+
+def extract_ensemble_equal_weight(result: MAPElitesResult) -> EnsembleResult:
+    members = result.archive_as_list()
+    n = len(members)
+    weights = np.ones(n) / n
+    oof_preds = [ind.oof_predictions for ind in members]
+    
+    return EnsembleResult(
+        weights=weights,
+        selected_indices=list(range(n)),
+        trajectory=[],
+        members=members,
+        oof_predictions=oof_preds,
+    )

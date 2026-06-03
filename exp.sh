@@ -22,7 +22,7 @@ conda activate tpot2env
 
 
 echo RunStart
-srun -u /home/hodesse/miniconda3/envs/tpot2env/bin/python tester.py \
+srun -u /home/hodesse/miniconda3/envs/tpot2env/bin/python tester_2.py \
 --n_jobs 12 \
 --savepath logs \
 --num_runs ${RUN} \

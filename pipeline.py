@@ -100,7 +100,7 @@ def _mutate_step(
     if rng.random() >= p_mutate:
         return   # this step is not mutated
 
-    if rng.random() < 0.5:
+    if rng.random() < 0.25:
         # Replace entire step
         new_name = rng.choice(list(space.keys()))
         if step == "selector":
@@ -255,9 +255,9 @@ class PipelineIndividual:
         child.n_features_in = None
         child.n_features_out = None
 
-        _mutate_step(child, "selector", SELECTOR_SPACE, rng)
-        _mutate_step(child, "transformer", TRANSFORMER_SPACE, rng)
-        _mutate_step(child, "classifier", CLASSIFIER_SPACE, rng)
+        _mutate_step(child, "selector", SELECTOR_SPACE, rng, p_mutate=0.25)
+        _mutate_step(child, "transformer", TRANSFORMER_SPACE, rng, p_mutate=0.25)
+        _mutate_step(child, "classifier", CLASSIFIER_SPACE, rng, p_mutate=0.8)
 
         return child
 

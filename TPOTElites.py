@@ -18,6 +18,7 @@ from map_elites import (
     MAPElitesResult,
     EnsembleResult,
     extract_ensemble,
+    extract_ensemble_equal_weight,
     run_mapelites,
 )
 from ensemble_selection import ensemble_predict_proba
@@ -96,6 +97,8 @@ class TPOTElites(BaseEstimator, ClassifierMixin):
             random_state=self.random_state if self.random_state is not None else 42,
             min_score=self.min_ensemble_score,
         )
+
+        #self.ensemble_result_: EnsembleResult = extract_ensemble_equal_weight(self.search_result_)
 
         # Retrain ensemble members on full training data
         if self.verbosity >= 1:

@@ -34,7 +34,7 @@ def main():
 
     try:
 
-        task_ids = [359954, 2073, 190146, 168784, 359959]
+        task_ids = [146820, 168350, 168757, 168911, 190137]
         num_runs = 21
 
         jobs = [(tid, run) for tid in task_ids for run in range(num_runs)]
@@ -76,15 +76,12 @@ def main():
 
         X_train = preprocessor.fit_transform(X_train)
         X_test  = preprocessor.transform(X_test)
-        X_val   = preprocessor.transform(X_val)
 
         y_train = y_train.to_numpy()
-        y_val   = y_val.to_numpy()
         y_test  = y_test.to_numpy()
 
         le = LabelEncoder()
         y_train = le.fit_transform(y_train)
-        y_val   = le.transform(y_val)
         y_test  = le.transform(y_test)
 
 
