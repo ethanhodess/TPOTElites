@@ -16,4 +16,4 @@ for f in files[1:]:
     dfs.append(df)
 
 final_df = pd.concat(dfs, ignore_index=True)
-final_df.to_csv("elites_9.csv", index=False)
+final_df.to_csv("elites_10.csv", index=False)

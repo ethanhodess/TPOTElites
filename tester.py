@@ -31,7 +31,7 @@ def main():
 
     try:
 
-        task_ids = [359954, 2073, 190146, 168784, 359959]
+        task_ids = ["satimage", "vehicle", "wine-quality"]
         num_runs = 21
 
         jobs = [(tid, run) for tid in task_ids for run in range(num_runs)]
