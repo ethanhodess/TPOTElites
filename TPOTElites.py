@@ -98,7 +98,7 @@ class TPOTElites(BaseEstimator, ClassifierMixin):
             min_score=self.min_ensemble_score,
         )
 
-        #self.ensemble_result_: EnsembleResult = extract_ensemble_equal_weight(self.search_result_)
+        self.ensemble_result_unweighted_: EnsembleResult = extract_ensemble_equal_weight(self.search_result_)
 
         # Retrain ensemble members on full training data
         if self.verbosity >= 1:
@@ -106,6 +106,7 @@ class TPOTElites(BaseEstimator, ClassifierMixin):
             print(f"[TPOTElites] Retraining {n_unique} ensemble members …")
 
         self.fitted_pipelines_: List[tuple] = []   # (fitted_pipeline, weight)
+        self.fitted_pipelines_unweighted_: List[tuple] = [] 
 
         for member, weight in zip(
                 self.ensemble_result_.members,
@@ -123,7 +124,22 @@ class TPOTElites(BaseEstimator, ClassifierMixin):
                     print(f"  [warn] Retraining failed for {member}: {exc}")
                 # Skip failed members; re-normalise weights below
 
-        if not self.fitted_pipelines_:
+        for member, weight in zip(
+                self.ensemble_result_unweighted_.members,
+                self.ensemble_result_unweighted_.weights):
+            if weight <= 0:
+                continue
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    pipe = member.build_sklearn_pipeline()
+                    pipe.fit(X, y)
+                self.fitted_pipelines_unweighted_.append((pipe, weight))
+            except Exception as exc:
+                if self.verbosity >= 2:
+                    print(f"  [warn] Retraining failed for {member}: {exc}")
+
+        if not self.fitted_pipelines_unweighted_:
             raise RuntimeError(
                 "All ensemble members failed to retrain. "
                 "Try increasing population_size or relaxing min_ensemble_score."
@@ -134,6 +150,10 @@ class TPOTElites(BaseEstimator, ClassifierMixin):
         self.fitted_pipelines_ = [
             (pipe, w / total_w) for pipe, w in self.fitted_pipelines_
         ]
+
+        total_w = sum(w for _, w in self.fitted_pipelines_unweighted_)
+        self.fitted_pipelines_unweighted_ = [
+            (pipe, w / total_w) for pipe, w in self.fitted_pipelines_unweighted_]
 
         if self.verbosity >= 1:
             best = self.search_result_.best_individual()
@@ -168,6 +188,20 @@ class TPOTElites(BaseEstimator, ClassifierMixin):
         proba = self.predict_proba(X)
         indices = np.argmax(proba, axis=1)
         return self.classes_[indices]
+    
+    def predict_proba_unweighted(self, X) -> np.ndarray:
+        check_is_fitted(self)
+        X = check_array(X)
+        avg = np.zeros((X.shape[0], len(self.classes_)), dtype=np.float64)
+        for pipe, weight in self.fitted_pipelines_unweighted_:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                avg += pipe.predict_proba(X) * weight
+        return avg
+
+    def predict_unweighted(self, X) -> np.ndarray:
+        proba = self.predict_proba_unweighted(X)
+        return self.classes_[np.argmax(proba, axis=1)]
 
 
     # Print archive grid
