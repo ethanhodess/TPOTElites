@@ -12,6 +12,7 @@ import traceback
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import LabelEncoder
 from sklearn.compose import ColumnTransformer
+import numpy as np
 
 
 def main():
@@ -32,9 +33,41 @@ def main():
 
     save_folder = base_save_folder
 
+
+    def compute_auroc(model, X_test, y_test):
+        y_proba = model.predict_proba(X_test)
+        n_classes = len(np.unique(y_test))
+
+        if n_classes == 2:
+            return roc_auc_score(y_test, y_proba[:, 1])
+        else:
+            return roc_auc_score(
+                y_test,
+                y_proba,
+                multi_class="ovr",
+                average="macro"
+            )
+
     try:
 
-        task_ids = [146820, 168350, 168757, 168911, 190137]
+        # task_ids = [2073, 7593, 10090, 146818, 146820, 167120, 168350, 
+        #     168757, 168784, 168909, 168910, 168911, 189354, 189355, 
+        #     189922, 190137, 190146, 190392, 190410, 190411, 190412, 
+        #     211979, 211986, 359953, 359955, 359956, 359957, 359958, 
+        #     359959, 359960, 359961, 359962, 359963, 359964, 359965, 359966, 
+        #     359967, 359968, 359969, 359970, 359971, 359972, 359973, 359974, 
+        #     359975, 359976, 359977, 359979, 359980, 359981, 359982, 
+        #     359984, 359985, 359987, 359990, 
+        #     359992, 359994]
+
+        # task_ids = [2073, 146818, 146820, 168350, 168757, 168784, 168911,
+        #             190137, 190146, 190411, 359955, 359956, 359957, 359958,
+        #             359959, 359962, 359963, 359964, 359965, 359968, 
+        #             359971, 359972, 359974, 359975]
+
+        task_ids = [359975, 146820, 190137, 359958, 359966, 359968, 359962, 
+                    359955, 190411, 359960, 359974, 2073, 168784, 359969, 359964, 359970]
+        
         num_runs = 21
 
         jobs = [(tid, run) for tid in task_ids for run in range(num_runs)]
@@ -45,13 +78,13 @@ def main():
         print("task id:", task_id, "run num:", run_num)
 
         # load the data
-        data = pd.read_csv(f'/common/hodesse/hpc_test/TPOTElites/data/task_{task_id}.csv')
-        with open(f'/common/hodesse/hpc_test/TPOTElites/data/task_{task_id}_categorical_indicator.pkl', "rb") as f:
+        data = pd.read_csv(f'/common/hodesse/hpc_test/TPOTElites/openml_271/task_{task_id}.csv')
+        with open(f'/common/hodesse/hpc_test/TPOTElites/openml_271/task_{task_id}_categorical_indicator.pkl', "rb") as f:
             cat_ind = pickle.load(f)
 
         data.columns = data.columns.str.strip().str.lower()
 
-        y = data["class"]
+        y = data.iloc[:, -1]
         X = data.iloc[:, :-1]   
 
         if len(cat_ind) == data.shape[1]:
@@ -69,7 +102,7 @@ def main():
 
         preprocessor = ColumnTransformer(
             transformers=[
-                ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+                ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
                 ("num", "passthrough", num_cols),
             ]
         )
@@ -87,9 +120,10 @@ def main():
 
         results = []
 
-        est = TPOTElites(generations=60, init_size=2000, population_size=50, ensemble_size=50, random_state=run_num, verbosity=2)
+        est = TPOTElites(generations=0, init_size=2000, population_size=50, ensemble_size=50, random_state=run_num, verbosity=2)
         est.fit(X_train, y_train)
-        ensemble_score = accuracy_score(y_test, est.predict(X_test))
+        ensemble_score = compute_auroc(est, X_test, y_test)
+        #ensemble_score_unweighted = accuracy_score(y_test, est.predict_unweighted(X_test))
 
         est.print_archive()
         est.print_ensemble()
@@ -100,12 +134,13 @@ def main():
         best = est.search_result_.best_individual()
         pipe = best.build_sklearn_pipeline()
         pipe.fit(X_train, y_train)
-        individual_score = accuracy_score(y_test, pipe.predict(X_test))
+        individual_score = compute_auroc(pipe, X_test, y_test)
 
         results.append({
             "task_id": task_id,
             "seed": run_num,
-            "ensemble": ensemble_score,
+           # "unweighted_ensemble": ensemble_score_unweighted,
+            "weighted_ensemble": ensemble_score,
             "individual": individual_score
         })
             
