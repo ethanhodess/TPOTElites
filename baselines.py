@@ -146,6 +146,15 @@ def vote_soft(estimators, X_test, weights=None):
     
     return np.argmax(probas.sum(axis=0), axis=1)
 
+def vote_soft_proba(estimators, X_test, weights=None):
+    probas = np.stack([est.predict_proba(X_test) for est in estimators])
+
+    if weights is not None:
+        weights = np.asarray(weights).reshape(-1, 1, 1)
+        return np.sum(probas * weights, axis=0) / np.sum(weights)
+
+    return np.mean(probas, axis=0)
+
 def combine_preds(proba_list, weights=None):
     probas = np.stack(proba_list, axis=0)
 
@@ -182,10 +191,9 @@ def main():
 
     try:
 
-        task_ids = {2073, 146818, 146820, 168350, 168757, 168784, 168911,
-                    190137, 190146, 190411, 359955, 359956, 359957, 359958,
-                    359959, 359962, 359963, 359964, 359965, 359968, 
-                    359971, 359972, 359974, 359975}
+        task_ids = [359975, 146820, 190137, 359958, 359968, 359962, 
+                    359955, 190411, 359960, 359974, 2073, 168784]
+        
         num_runs = 21
 
         jobs = [(tid, run) for tid in task_ids for run in range(num_runs)]
@@ -224,7 +232,7 @@ def main():
 
         preprocessor = ColumnTransformer(
             transformers=[
-                ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+                ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
                 ("num", "passthrough", num_cols),
             ]
         )
@@ -240,7 +248,7 @@ def main():
         y_test  = le.transform(y_test)
 
         
-        est = tpot.TPOTEstimator(search_space=constrained_search_space, generations=0, population_size=5000, cv=5, n_jobs=n_jobs, max_time_mins=None,
+        est = tpot.TPOTEstimator(search_space=constrained_search_space, generations=0, population_size=2000, cv=5, n_jobs=n_jobs, max_time_mins=180,
                                  random_state=run_num, verbose=2, classification=True, scorers=['roc_auc_ovr', tpot.objectives.complexity_scorer], scorers_weights=[1, -1])
         est.fit(X_train, y_train)
         eval_inds = est.evaluated_individuals
@@ -253,16 +261,40 @@ def main():
         ensemble_5000 = greedy_forward_search(filtered_eval_inds, X_train, y_train, run_num)
         ensemble_70 = greedy_forward_search(top70, X_train, y_train, run_num)
 
-        ensemble_test_results_5000 = vote_soft(estimators=ensemble_5000, X_test=X_test)
-        ensemble_test_accuracy_5000 = accuracy_score(y_test, ensemble_test_results_5000)
+        ensemble_test_proba_5000 = vote_soft_proba(estimators=ensemble_5000, X_test=X_test)
 
-        ensemble_test_results_70 = vote_soft(estimators=ensemble_70, X_test=X_test)
-        ensemble_test_accuracy_70 = accuracy_score(y_test, ensemble_test_results_70)
+        if len(np.unique(y_test)) == 2:
+            ensemble_test_auroc_5000 = roc_auc_score(
+                y_test,
+                ensemble_test_proba_5000[:, 1]
+            )
+        else:
+            ensemble_test_auroc_5000 = roc_auc_score(
+                y_test,
+                ensemble_test_proba_5000,
+                multi_class="ovr",
+                average="macro"
+            )
+
+        ensemble_test_proba_70 = vote_soft_proba(estimators=ensemble_70, X_test=X_test)
+
+        if len(np.unique(y_test)) == 2:
+            ensemble_test_auroc_70 = roc_auc_score(
+                y_test,
+                ensemble_test_proba_70[:, 1]
+            )
+        else:
+            ensemble_test_auroc_70 = roc_auc_score(
+                y_test,
+                ensemble_test_proba_70,
+                multi_class="ovr",
+                average="macro"
+            )
 
         full_results.append({"task id": task_id,
                             "run #": run_num,
-                            "ensemble_5000": ensemble_test_accuracy_5000,
-                            "ensemble_70": ensemble_test_accuracy_70
+                            "ensemble_5000": ensemble_test_auroc_5000,
+                            "ensemble_70": ensemble_test_auroc_70
                             })
 
         full_results_df = pd.DataFrame(full_results)
