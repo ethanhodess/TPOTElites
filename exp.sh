@@ -1,8 +1,8 @@
 #!/bin/bash -l
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
-#SBATCH -t 110:00:00
+#SBATCH --cpus-per-task=4
+#SBATCH -t 12:00:00
 #SBATCH --mem=32GB
 #SBATCH --job-name=tpot-elites
 #SBATCH -p defq
@@ -10,7 +10,7 @@
 #SBATCH --mail-type=FAIL,BEGIN,END
 #SBATCH --mail-user=Ethan.Hodess@cshs.org
 #SBATCH -o ./logs/outputs/output.%j_%a.out # STDOUT
-#SBATCH --array=0-62
+#SBATCH --array=0-776
 RUN=${SLURM_ARRAY_TASK_ID:-1}
 echo “Run: ${RUN}”
 module load git/2.33.1
@@ -22,7 +22,7 @@ conda activate tpot2env
 
 
 echo RunStart
-srun -u /home/hodesse/miniconda3/envs/tpot2env/bin/python tester.py \
---n_jobs 12 \
+srun -u /home/hodesse/miniconda3/envs/tpot2env/bin/python baselines.py \
+--n_jobs 4 \
 --savepath logs \
 --num_runs ${RUN} \

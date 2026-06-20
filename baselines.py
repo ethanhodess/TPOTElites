@@ -94,6 +94,8 @@ def greedy_forward_search(filtered_eval_inds, X_train, y_train, seed):
     X_ref = ray.put(X_train)
     y_ref = ray.put(y_train)
 
+    n_classes = len(np.unique(y_train))
+
     estimators = filtered_eval_inds.iloc[:, 10].tolist()
    
     futures = {
@@ -120,12 +122,17 @@ def greedy_forward_search(filtered_eval_inds, X_train, y_train, seed):
 
             # test ensemble CV accuracy when each candidate is added
             candidate_probas = [est_cv_probas[e] for e in temp_ensemble + [est]]
-            temp_preds = combine_preds(candidate_probas)
-            temp_acc = accuracy_score(y_train, temp_preds)
+            temp_probas = combine_probas(candidate_probas)
+            
+            if n_classes == 2:
+                temp_auroc = roc_auc_score(y_train, temp_probas[:, 1])
+            else:
+                temp_auroc = roc_auc_score(y_train, temp_probas, multi_class="ovr", average="macro")
+            
 
-            if temp_acc > best_candidate_acc:
+            if temp_auroc > best_candidate_acc:
                 best_candidate = est
-                best_candidate_acc = temp_acc
+                best_candidate_acc = temp_auroc
         
         print(f"ensemble acc changes to {best_candidate_acc:.4f}")
         temp_ensemble.append(best_candidate)
@@ -168,6 +175,13 @@ def combine_preds(proba_list, weights=None):
     # Pick the class with max probability
     return np.argmax(avg_proba, axis=1)
 
+def combine_probas(proba_list, weights=None):
+    probas = np.stack(proba_list, axis=0)
+    if weights is not None:
+        weights = np.asarray(weights).reshape(-1, 1, 1)
+        probas = probas * weights
+    return probas.sum(axis=0) / (weights.sum() if weights is not None else len(proba_list))
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -187,12 +201,38 @@ def main():
 
     save_folder = base_save_folder
 
+    def compute_auroc(model, X_test, y_test):
+        y_proba = model.predict_proba(X_test)
+        n_classes = len(np.unique(y_test))
+
+        if n_classes == 2:
+            return roc_auc_score(y_test, y_proba[:, 1])
+        else:
+            return roc_auc_score(
+                y_test,
+                y_proba,
+                multi_class="ovr",
+                average="macro"
+            )
+
     ray.init()
 
     try:
 
-        task_ids = [359975, 146820, 190137, 359958, 359968, 359962, 
-                    359955, 190411, 359960, 359974, 2073, 168784]
+        # task_ids = [359975, 146820, 190137, 359958, 359968, 359962, 
+        #             359955, 190411, 359960, 359974, 2073, 168784]
+
+        task_ids = [
+            # binary
+            359975, 146820, 190137, 359958, 359966, 359968, 359962,
+            359955, 190411, 168350, 168757, 359956, 190412, 146818,
+            359967, 359965, 189922, 190392, 168911, 190410, 359972,
+            359973,
+            # multiclass
+            359960, 359974, 2073, 168784, 359969, 359964, 359970,
+            168910, 359959, 359953, 190146, 359961, 10090, 359963,
+            359957,
+        ]
         
         num_runs = 21
 
@@ -202,6 +242,7 @@ def main():
         task_id, run_num = jobs[array_id]
 
         constrained_search_space = get_pipeline_space(seed=run_num)
+        constrained_search_space_random = get_pipeline_space(seed=run_num+2000)
 
         full_results = []
 
@@ -248,57 +289,115 @@ def main():
         y_test  = le.transform(y_test)
 
         
-        est = tpot.TPOTEstimator(search_space=constrained_search_space, generations=0, population_size=2000, cv=5, n_jobs=n_jobs, max_time_mins=180,
+        # Step 1: tpot run (50x40) and ES on full 2000 and ES on top 100
+
+        est = tpot.TPOTEstimator(search_space=constrained_search_space, generations=50, population_size=40, cv=5, n_jobs=n_jobs, max_time_mins=None,
                                  random_state=run_num, verbose=2, classification=True, scorers=['roc_auc_ovr', tpot.objectives.complexity_scorer], scorers_weights=[1, -1])
         est.fit(X_train, y_train)
         eval_inds = est.evaluated_individuals
+
+        individual_score = compute_auroc(est, X_test, y_test)
             
 
         filtered_eval_inds = clean_eval_inds(eval_inds)
-        top70 = filtered_eval_inds.nlargest(70, "roc_auc_score")
+        top100 = filtered_eval_inds.nlargest(100, "roc_auc_score")
 
+        # ensemble selection
+        ensemble_tpot_2000 = greedy_forward_search(filtered_eval_inds, X_train, y_train, run_num)
+        ensemble_tpot_100 = greedy_forward_search(top100, X_train, y_train, run_num)
 
-        ensemble_5000 = greedy_forward_search(filtered_eval_inds, X_train, y_train, run_num)
-        ensemble_70 = greedy_forward_search(top70, X_train, y_train, run_num)
-
-        ensemble_test_proba_5000 = vote_soft_proba(estimators=ensemble_5000, X_test=X_test)
+        # get probas and convert to auroc score
+        ensemble_tpot_test_proba_2000 = vote_soft_proba(estimators=ensemble_tpot_2000, X_test=X_test)
 
         if len(np.unique(y_test)) == 2:
-            ensemble_test_auroc_5000 = roc_auc_score(
+            ensemble_tpot_test_auroc_2000 = roc_auc_score(
                 y_test,
-                ensemble_test_proba_5000[:, 1]
+                ensemble_tpot_test_proba_2000[:, 1]
             )
         else:
-            ensemble_test_auroc_5000 = roc_auc_score(
+            ensemble_tpot_test_auroc_2000 = roc_auc_score(
                 y_test,
-                ensemble_test_proba_5000,
+                ensemble_tpot_test_proba_2000,
                 multi_class="ovr",
                 average="macro"
             )
 
-        ensemble_test_proba_70 = vote_soft_proba(estimators=ensemble_70, X_test=X_test)
+        ensemble_tpot_test_proba_100 = vote_soft_proba(estimators=ensemble_tpot_100, X_test=X_test)
 
         if len(np.unique(y_test)) == 2:
-            ensemble_test_auroc_70 = roc_auc_score(
+            ensemble_tpot_test_auroc_100 = roc_auc_score(
                 y_test,
-                ensemble_test_proba_70[:, 1]
+                ensemble_tpot_test_proba_100[:, 1]
             )
         else:
-            ensemble_test_auroc_70 = roc_auc_score(
+            ensemble_tpot_test_auroc_100 = roc_auc_score(
                 y_test,
-                ensemble_test_proba_70,
+                ensemble_tpot_test_proba_100,
+                multi_class="ovr",
+                average="macro"
+            )
+
+
+        # Step 2: random tpot run (0x2000) and ES on full 2000 and ES on top 100
+
+        est_random = tpot.TPOTEstimator(search_space=constrained_search_space_random, generations=0, population_size=2000, cv=5, n_jobs=n_jobs, max_time_mins=None,
+                                 random_state=run_num+2000, verbose=2, classification=True, scorers=['roc_auc_ovr', tpot.objectives.complexity_scorer], scorers_weights=[1, -1])
+        est_random.fit(X_train, y_train)
+        eval_inds_random = est_random.evaluated_individuals
+
+        individual_score_random = compute_auroc(est_random, X_test, y_test)
+            
+
+        filtered_eval_inds_random = clean_eval_inds(eval_inds_random)
+        top100_random = filtered_eval_inds_random.nlargest(100, "roc_auc_score")
+
+        # ensemble selection
+        ensemble_random_2000 = greedy_forward_search(filtered_eval_inds_random, X_train, y_train, run_num)
+        ensemble_random_100 = greedy_forward_search(top100_random, X_train, y_train, run_num)
+
+        # get probas and convert to auroc score
+        ensemble_random_test_proba_2000 = vote_soft_proba(estimators=ensemble_random_2000, X_test=X_test)
+
+        if len(np.unique(y_test)) == 2:
+            ensemble_random_test_auroc_2000 = roc_auc_score(
+                y_test,
+                ensemble_random_test_proba_2000[:, 1]
+            )
+        else:
+            ensemble_random_test_auroc_2000 = roc_auc_score(
+                y_test,
+                ensemble_random_test_proba_2000,
+                multi_class="ovr",
+                average="macro"
+            )
+
+        ensemble_random_test_proba_100 = vote_soft_proba(estimators=ensemble_random_100, X_test=X_test)
+
+        if len(np.unique(y_test)) == 2:
+            ensemble_random_test_auroc_100 = roc_auc_score(
+                y_test,
+                ensemble_random_test_proba_100[:, 1]
+            )
+        else:
+            ensemble_random_test_auroc_100 = roc_auc_score(
+                y_test,
+                ensemble_random_test_proba_100,
                 multi_class="ovr",
                 average="macro"
             )
 
         full_results.append({"task id": task_id,
                             "run #": run_num,
-                            "ensemble_5000": ensemble_test_auroc_5000,
-                            "ensemble_70": ensemble_test_auroc_70
+                            "individual_tpot": individual_score,
+                            "ensemble_tpot_2000": ensemble_tpot_test_auroc_2000,
+                            "ensemble_tpot_100": ensemble_tpot_test_auroc_100,
+                            "individual_random": individual_score_random,
+                            "ensemble_random_2000": ensemble_random_test_auroc_2000,
+                            "ensemble_random_100": ensemble_random_test_auroc_100,
                             })
 
         full_results_df = pd.DataFrame(full_results)
-        full_results_df.to_csv(os.path.join(save_folder, (f'random_baselines_{task_id}_#{run_num}.csv')), index=False)
+        full_results_df.to_csv(os.path.join(save_folder, (f'full_run_{task_id}_#{run_num}.csv')), index=False)
 
     except Exception as e:
         trace = traceback.format_exc()
